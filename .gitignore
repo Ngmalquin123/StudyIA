@@ -1,0 +1,59 @@
+
+# Este archivo le dice a Git que NO.Versionar.
+# Sin esto, un "git add ." subiria tus contrasenas y 300 MB
+# de librerias instaladas.
+
+
+
+# Nunca subir archivos .env: contienen contrasenas y API keys.
+.env
+.env.local
+.env.*.local
+
+# Excepcion: .env.example SI se sube, porque no tiene secretos reales.
+!.env.example
+
+
+# Entorno virtual: se recrea con "pip install -r requirements.txt"
+.venv/
+venv/
+env/
+ENV/
+
+# Bytecode de Python (archivos .pyc que se regeneran solos)
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Herramientas de testing y coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+
+# --- Node.js / Angular ---
+node_modules/
+dist/
+.angular/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+
+# --- Sistema operativo y editores ---
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.swp
+
+
+# --- Tests ycoverage de Python ---
+tests/__pycache__/
+.coverage
+coverage.xml
