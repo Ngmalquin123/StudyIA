@@ -1,0 +1,11 @@
+fastapi #donde define los endpoints y la lógica de negocio
+uvicorn[standard] #El servidor que ejecuta FastAPI
+sqlalchemy #Habla con PostgreSQL usando clases de Python en vez de SQL a mano
+alembic#Migaciones: registra los cambios de tablas como archivos versionados
+psycopg[binary]#El cable que conecta SQLAlchemy con PostgreSQL
+pydantic-settings#Lee el archivo .env
+python-jose[cryptography]#Crea y verifica los tokens JWT (el login)
+bcrypt#Hashea contraseñas (Fase 4)
+python-multipart#ManejPermite subir archivos (lo usaremos en RAG)a la carga de archivos multipart
+google-genai#Habla con Gemini (Fase 8)
+httpx#Para los tests automatizados
