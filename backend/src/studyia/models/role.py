@@ -1,7 +1,16 @@
+from enum import StrEnum
+
 from sqlalchemy import BigInteger, Identity, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from studyia.database.base import Base
+
+
+class RoleName(StrEnum):
+    """Roles que crea la migración inicial."""
+
+    ADMIN = "admin"
+    ESTUDIANTE = "estudiante"
 
 
 class Role(Base):

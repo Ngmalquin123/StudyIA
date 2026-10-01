@@ -7,19 +7,20 @@ from getpass import getpass
 
 from studyia.core.security import hash_password
 from studyia.database.connection import SessionLocal
-from studyia.services.auth_service import ADMIN_ROLE, get_role_by_name, get_user_by_email
-from studyia.models import User
+from studyia.models import RoleName, User
+from studyia.services.user_service import get_role_by_name, get_user_by_email
 
 
 def main() -> None:
     email = input("Email del admin: ").strip().lower()
 
     with SessionLocal() as db:
-        admin_role = get_role_by_name(db, ADMIN_ROLE)
+        admin_role = get_role_by_name(db, RoleName.ADMIN)
         user = get_user_by_email(db, email)
 
         if user is not None:
             user.role = admin_role
+            user.is_active = True
             db.commit()
             print(f"'{email}' ya existía: ahora es admin.")
             return

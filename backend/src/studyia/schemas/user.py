@@ -1,4 +1,8 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from datetime import datetime
+
+from pydantic import BaseModel, EmailStr, Field
+
+from studyia.models import User
 
 
 class UserCreate(BaseModel):
@@ -13,17 +17,31 @@ class UserUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     email: EmailStr | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
-    # Solo un admin puede cambiar el rol
+    # Obligatoria cuando el usuario cambia su propia contraseña
+    current_password: str | None = None
+    # Solo un admin puede cambiar el rol o desactivar una cuenta
     rol: str | None = None
+    is_active: bool | None = None
 
 
 class UserRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     name: str
     email: EmailStr
     rol: str | None = None
+    is_active: bool
+    created_at: datetime
+
+    @classmethod
+    def from_user(cls, user: User) -> "UserRead":
+        return cls(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            rol=user.role.nombre if user.role else None,
+            is_active=user.is_active,
+            created_at=user.created_at,
+        )
 
 
 class UserList(BaseModel):

@@ -1,0 +1,43 @@
+<h1>Usuarios</h1>
+<p class="muted">{{ total() }} registrados</p>
+
+@if (error(); as message) {
+  <p class="alert error" role="alert">{{ message }}</p>
+}
+
+@if (loading()) {
+  <p class="muted">Cargando…</p>
+} @else {
+  <div class="card table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Email</th>
+          <th>Rol</th>
+          <th>Registro</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (user of users(); track user.id) {
+          <tr>
+            <td>{{ user.name }}</td>
+            <td>{{ user.email }}</td>
+            <td>{{ user.rol ?? '—' }}</td>
+            <td>{{ user.created_at | date: 'dd/MM/yyyy' }}</td>
+            <td>
+              @if (user.id === auth.user()?.id) {
+                <span class="muted">Tú</span>
+              } @else {
+                <button type="button" class="btn small" (click)="toggleActive(user)">
+                  {{ user.is_active ? 'Desactivar' : 'Activar' }}
+                </button>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

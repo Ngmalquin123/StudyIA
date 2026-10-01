@@ -1,59 +1,49 @@
-# StudyWeb
+# StudyIA - Frontend
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.2.0.
+Angular 22 (componentes standalone, signals, sin zone.js). Usa Node de `.nvmrc` (`nvm use` en la raíz del repo).
 
-## Development server
+## Puesta en marcha
 
-To start a local development server, run:
-
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Con el backend levantado en `http://localhost:8000` (ver `backend/README.md`):
 
 ```bash
-ng generate component component-name
+npm install
+npm start          # http://localhost:4200
+npm test           # tests con Vitest
+npm run build      # build de producción en dist/
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+La URL del backend está en `src/environments/environment.ts`.
 
-```bash
-ng generate --help
+## Estructura
+
+```
+src/app/
+  app.config.ts          HttpClient + interceptor, router, restaurar sesión al arrancar
+  app.routes.ts          Rutas y qué guard protege cada una
+  core/
+    auth/
+      auth.service.ts      login, registro, refresh, logout; usuario actual como signal
+      auth.interceptor.ts  agrega el Bearer y, si llega 401, refresca el token y reintenta
+      auth.guards.ts       authGuard (con sesión), guestGuard (sin sesión), adminGuard
+      token-storage.ts     guarda los tokens en localStorage
+      auth.models.ts       tipos iguales a los schemas del backend
+    http/api-error.ts      convierte errores del backend en mensajes
+    users/users.service.ts llamadas a /api/users
+  layout/shell/          barra superior de las páginas con sesión
+  features/
+    auth/login/          /login
+    auth/register/       /registro
+    home/                /           (requiere sesión)
+    admin/users/         /admin/usuarios (solo admin)
 ```
 
-## Building
+## Cómo funciona la sesión
 
-To build the project run:
+1. Login o registro → el backend devuelve `access_token` y `refresh_token`, que se guardan en `localStorage`.
+2. Al abrir la app, `restoreSession()` llama a `/api/auth/me` con el token guardado; así recargar la página no cierra la sesión.
+3. Cada petición a `/api` lleva `Authorization: Bearer <access_token>` (lo pone el interceptor).
+4. Si el backend responde `401`, el interceptor pide tokens nuevos a `/api/auth/refresh` y repite la petición. Si el refresh también falla, se cierra la sesión y se va a `/login`.
+5. Si alguien entra a una página protegida sin sesión, `authGuard` lo manda a `/login?returnUrl=...` y después del login vuelve a donde quería ir.
 
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Para agregar una página con sesión, ponla dentro de `children` de la ruta `''` en `app.routes.ts`.

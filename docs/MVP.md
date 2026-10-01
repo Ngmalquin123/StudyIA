@@ -32,7 +32,7 @@ Cada función que se agrega tiene un costo (tiempo, complejidad, más cosas que 
 | 1.2 | Login | Ingresa con email y contraseña, recibe un token JWT | Alta |
 | 1.3 | Sesión persistente | El token se guarda en el navegador y evita volver a iniciar sesión | Alta |
 | 1.4 | Aislamiento de datos | Cada estudiante ve **solo** su propia información | Alta |
-| 1.5 | Contraseñas seguras | Se guardan hasheadas con bcrypt, nunca en texto plano | Alta |
+| 1.5 | Contraseñas seguras | Se guardan hasheadas con argon2, nunca en texto plano | Alta |
 
 > **Por qué el punto 1.4 importa:** es un requisito de seguridad, no una comodidad. Si el estudiante A pudiera ver los datos del estudiante B, el proyecto no es presentable.
 
@@ -131,7 +131,7 @@ Una función está terminada cuando se cumplen **las cinco** condiciones:
 | Base de datos | PostgreSQL | 18.3 |
 | ORM | SQLAlchemy | 2.1 |
 | Migraciones | Alembic | 1.20 |
-| Autenticación | JWT (HS256) + bcrypt | — |
+| Autenticación | JWT (HS256) + argon2 | — |
 | IA | Gemini / OpenCode Zen | — |
 
 ### 6.2 Proveedor de IA intercambiable
@@ -176,7 +176,7 @@ La tabla de recomendaciones está diseñada para que un modelo de ML se pueda a�
 | Medida | Detalle |
 |--------|---------|
 | Usuario de BD dedicado | Rol `studyia`, **no** superusuario. Daño acotado a la base `studyia` |
-| Contraseñas | Hasheadas con bcrypt, nunca reversibles |
+| Contraseñas | Hasheadas con argon2, nunca reversibles |
 | Secretos | Fuera del código, en `.env`, que Git ignora |
 | Aislamiento por usuario | Cada endpoint filtra por `user_id` del token |
 | CORS | Solo `localhost:4200` permitido |

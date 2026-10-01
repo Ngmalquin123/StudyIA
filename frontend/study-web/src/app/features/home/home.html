@@ -1,0 +1,8 @@
+@if (auth.user(); as user) {
+  <h1>Hola, {{ user.name }}</h1>
+  <p class="muted">Sesión iniciada como {{ user.email }} · rol {{ user.rol ?? 'sin rol' }}</p>
+  <section class="card">
+    <h2>Próximamente</h2>
+    <p class="muted">Aquí irán tus materias, temas y progreso.</p>
+  </section>
+}

@@ -1,0 +1,16 @@
+<header class="topbar">
+  <a routerLink="/" class="brand">StudyIA</a>
+  <nav>
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Inicio</a>
+    @if (auth.isAdmin()) {
+      <a routerLink="/admin/usuarios" routerLinkActive="active">Usuarios</a>
+    }
+  </nav>
+  <div class="topbar-user">
+    <span class="muted">{{ auth.user()?.name }}</span>
+    <button type="button" class="btn" (click)="auth.logout()">Cerrar sesión</button>
+  </div>
+</header>
+<main class="page">
+  <router-outlet />
+</main>
