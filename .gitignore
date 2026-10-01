@@ -57,3 +57,4 @@ Thumbs.db
 tests/__pycache__/
 .coverage
 coverage.xml
+backend copy/

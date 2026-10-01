@@ -1,9 +1,10 @@
 # Esquema de la base de datos - StudyIA
 
-Documento de referencia de las 9 tablas del proyecto.
+Documento de referencia de las 6 tablas del proyecto (más `alembic_version`,
+que la gestiona Alembic).
 
 > **La fuente de verdad del esquema no es este documento**, sino los modelos de
-> `backend/app/models.py` y la migración de `backend/alembic/versions/`.
+> `backend/src/studyia/models/` y las migraciones de `backend/migrations/versions/`.
 > Si este documento y el código se contradicen, el código gana: hay que
 > actualizar este archivo.
 
@@ -11,252 +12,147 @@ Documento de referencia de las 9 tablas del proyecto.
 
 ## Cómo se ve el conjunto
 
-Los datos fluyen en cascada hacia abajo: cada nivel pertenece al anterior.
-
-```
-users          Una cuenta de estudiante
+```text
+roles              Rol del usuario (admin, estudiante)
   |
-  +-- subjects        Materia. Pertenece a UN usuario.
+  +-- users            Cuenta de usuario
         |
-        +-- topics         Tema dentro de una materia
-              |
-              +-- questions    Pregunta de un tema
-              |     |
-              |     +-- options    Opciones de respuesta (4 o mas)
-              |
-              +-- attempts     Un intento de resolver el tema
-              |     |
-              |     +-- answers   La respuesta dada a cada pregunta
-              |
-              +-- progress     Progreso acumulado del usuario en el tema
+        +-- progress       Nivel del usuario en un tema
+        +-- activities     Registro de lo que hace el usuario
 
-users
-  +-- attempts
-  +-- progress
-  +-- recommendations   Que tema reforzar y por que
+topics             Tema de estudio
+  |
+  +-- questions        Pregunta de un tema (con sus opciones)
+  +-- progress         Nivel de cada usuario en el tema
 ```
 
-## Decisiones de diseno
+## Estado actual
 
-### 1. Las materias son privadas
+| Tabla | Creada | Usada por la API |
+| --- | --- | --- |
+| `roles` | Sí | Sí: registro y login |
+| `users` | Sí | Sí: registro, login y `/me` |
+| `topics` | Sí | Pendiente |
+| `questions` | Sí | Pendiente |
+| `progress` | Sí | Pendiente |
+| `activities` | Sí | Pendiente |
 
-`subjects.user_id` es obligatorio. No existe una tabla de "inscripciones" ni de
-roles: cada estudiante es dueno de sus materias y nadie mas las ve. Es una
-decision consciente del MVP, no un accidente. Si manana hace falta que un
-profesor comparta materias, habria que agregar una tabla intermedia y cambiar
-esta regla.
+## Decisiones de diseño
 
-### 2. Todo se borra en cascada
+### 1. Las contraseñas nunca se guardan en texto plano
 
-Cada llave forena declara `ON DELETE CASCADE`. Consecuencia directa: si un
-estudiante borra su materia, PostgreSQL borra solo los temas, preguntas,
-opciones, intentos, respuestas y registros de progreso que colgaban de ella.
-No hay basura huerfana en la base.
+La columna `users.password` guarda el **hash argon2** de la contraseña
+(`backend/src/studyia/core/security.py`). Al iniciar sesión se compara el hash,
+nunca la contraseña original.
 
-> **Aviso importante:** `answers` tambien tiene `ON DELETE CASCADE` hacia
-> `questions` y `options`. Eso significa que **borrar una pregunta elimina el
-> historial de respuestas de los intentos**. Cuando se implemente el borrado de
-> preguntas (Fase 3), el backend deberia avisar al usuario antes de borrar si la
-> pregunta ya fue respondida. Es un trade-off aceptado para el MVP.
+### 2. El email es único y se guarda en minúsculas
 
-### 3. La base de datos es la ultima linea de defensa
+`users.email` tiene un índice `UNIQUE`. El backend lo normaliza a minúsculas
+antes de guardar y de buscar, así `Ana@Mail.com` y `ana@mail.com` son la misma
+cuenta.
 
-Las reglas Criticas se imponen con restricciones de SQL, no solo con codigo
-Python. Si un bug en el backend intenta violarlas, la base lo rechaza igual.
+### 3. Roles
 
-| Regla | Como se implementa | Archivo |
-|---|---|---|
-| Maximo 1 opcion correcta por pregunta | Indice unico **parcial** | `options` |
-| No repetir email | `UNIQUE` en `users.email` | `users` |
-| Dificultad entre 1 y 5 | `CHECK` | `questions` |
-| Origen solo `manual` o `ia` | `CHECK` | `questions` |
-| Un intento tiene al menos 1 pregunta | `CHECK` | `attempts` |
-| Aciertos no superan preguntas | `CHECK` | `progress` |
-| 1 registro de progreso por tema | `UNIQUE(user_id, topic_id)` | `progress` |
-| 1 respuesta por pregunta en un intento | `UNIQUE(attempt_id, question_id)` | `answers` |
-| Estado de recomendacion valido | `CHECK` | `recommendations` |
+La migración inicial inserta los roles `admin` y `estudiante`. Todo usuario que
+se registra recibe `estudiante`. Si se borra un rol, sus usuarios quedan con
+`rol_id = NULL` (`ON DELETE SET NULL`), no se borran.
 
-### 4. Por que el indice de `options` es PARCIAL
+### 4. Borrado en cascada
 
-Es el detalle mas importante del esquema, asi que vale la pena explicarlo.
+Borrar un usuario borra su `progress` y sus `activities`. Borrar un tema borra
+sus `questions` y el `progress` asociado (`ON DELETE CASCADE`).
 
-Una pregunta tiene varias opciones. La regla dice: **como maximo una puede ser
-correcta**. Un `UNIQUE` normal en `question_id` estaria mal, porque prohibiria
-tener varias opciones *incorrectas* (que es lo normal: 1 correcta + 3
-incorrectas).
+### 5. Identificadores
 
-La solucion es un indice unico que solo mira las filas que nos interesan:
-
-```sql
-CREATE UNIQUE INDEX uq_options_una_sola_correcta
-    ON options (question_id)
-    WHERE es_correcta = true;
-```
-
-PostgreSQL solo considera las filas con `es_correcta = true` al aplicar la
-unicidad. Las incorrectas quedan libres.
-
-**Lo que NO garantiza:** la base permite que una pregunta tenga *cero* opciones
-correctas. "Como maximo una" y "exactamente una" son cosas distintas. La regla
-de "exactamente una" la debe validar el backend, porque es una regla de
-negocio, no de integridad. Queda anotado para la Fase 3.
-
-### 5. `answers.es_correcta` es una copia, a proposito
-
-Podriamos deducir si la respuesta fue correcta mirando `options.es_correcta`. Se
-guarda igual en `answers` para que, si el estudiante edita una pregunta y
-cambia cual era la opcion correcta, **su historial no cambie retroactivamente**.
-El resultado historico queda congelado en el momento en que se respondió.
-
-### 6. Valores numericos
-
-- `dificultad` y `orden` usan `SMALLINT` (numeros chicos, 0 a 32767).
-- `porcentaje` usa `NUMERIC(5,2)`: maximo 999.99 con 2 decimales.
-  Se prefiere sobre `FLOAT` para porcentajes porque evita errores de redondeo
-  tipicos de los numeros de punto flotante.
+Todas las llaves primarias son `BIGINT GENERATED BY DEFAULT AS IDENTITY`
+(el estándar SQL moderno en lugar de `SERIAL`).
 
 ---
 
-## Las 9 tablas en detalle
+## Las tablas en detalle
 
-### `users` - cuentas de estudiantes
+### `roles`
 
-| Columna | Tipo | Reglas | Descripcion |
-|---|---|---|---|
-| `id` | INTEGER | PK, autoincrement | Identificador unico |
-| `nombre` | VARCHAR(120) | obligatorio | Nombre del estudiante |
-| `email` | VARCHAR(255) | obligatorio, **UNIQUE**, indexado | Se usa para iniciar sesion |
-| `password_hash` | VARCHAR(255) | obligatorio | Hash de la contrasena, **nunca** la contrasena |
-| `activo` | BOOLEAN | obligatorio, por defecto `true` | Permite desactivar sin borrar |
-| `creado_en` | TIMESTAMPTZ | obligatorio, por defecto `now()` | Fecha de registro |
+| Columna | Tipo | Reglas | Descripción |
+| --- | --- | --- | --- |
+| `id` | BIGINT | PK, identity | |
+| `nombre` | TEXT | obligatorio, **UNIQUE** | `admin`, `estudiante` |
 
-### `subjects` - materias
+### `users`
 
-| Columna | Tipo | Reglas | Descripcion |
-|---|---|---|---|
-| `id` | INTEGER | PK | |
-| `user_id` | INTEGER | FK -> `users.id`, **CASCADE**, obligatorio, indexado | Dueño de la materia |
-| `nombre` | VARCHAR(120) | obligatorio | |
-| `descripcion` | TEXT | opcional | |
-| `color` | VARCHAR(7) | opcional | Formato `#RRGGBB`, lo usa el frontend |
-| `creado_en` | TIMESTAMPTZ | obligatorio, `now()` | |
+| Columna | Tipo | Reglas | Descripción |
+| --- | --- | --- | --- |
+| `id` | BIGINT | PK, identity | |
+| `name` | TEXT | obligatorio | Nombre del usuario |
+| `email` | TEXT | obligatorio, **UNIQUE**, indexado | Se usa para iniciar sesión |
+| `password` | TEXT | obligatorio | Hash argon2, **nunca** la contraseña |
+| `rol_id` | BIGINT | FK -> `roles.id`, **SET NULL**, opcional | |
 
-### `topics` - temas de una materia
+### `topics`
 
-| Columna | Tipo | Reglas | Descripcion |
-|---|---|---|---|
-| `id` | INTEGER | PK | |
-| `subject_id` | INTEGER | FK -> `subjects.id`, **CASCADE**, obligatorio, indexado | |
-| `nombre` | VARCHAR(150) | obligatorio | |
-| `descripcion` | TEXT | opcional | |
-| `creado_en` | TIMESTAMPTZ | obligatorio, `now()` | |
+| Columna | Tipo | Reglas | Descripción |
+| --- | --- | --- | --- |
+| `id` | BIGINT | PK, identity | |
+| `name` | TEXT | obligatorio | |
+| `description` | TEXT | opcional | |
 
-### `questions` - preguntas
+### `questions`
 
-| Columna | Tipo | Reglas | Descripcion |
-|---|---|---|---|
-| `id` | INTEGER | PK | |
-| `topic_id` | INTEGER | FK -> `topics.id`, **CASCADE**, obligatorio, indexado | |
-| `enunciado` | TEXT | obligatorio | Texto de la pregunta |
-| `dificultad` | SMALLINT | obligatorio, por defecto `1`, **CHECK 1-5** | |
-| `origen` | VARCHAR(10) | obligatorio, por defecto `manual`, **CHECK** | `manual` o `ia` |
-| `creado_en` | TIMESTAMPTZ | obligatorio, `now()` | |
+| Columna | Tipo | Reglas | Descripción |
+| --- | --- | --- | --- |
+| `id` | BIGINT | PK, identity | |
+| `topic_id` | BIGINT | FK -> `topics.id`, **CASCADE**, indexado | |
+| `question` | TEXT | obligatorio | Texto de la pregunta |
+| `correct_answer` | TEXT | obligatorio | Respuesta correcta |
+| `options` | TEXT[] | opcional | Opciones de respuesta (arreglo de PostgreSQL) |
 
-### `options` - opciones de respuesta
+### `progress`
 
-| Columna | Tipo | Reglas | Descripcion |
-|---|---|---|---|
-| `id` | INTEGER | PK | |
-| `question_id` | INTEGER | FK -> `questions.id`, **CASCADE**, obligatorio, indexado | |
-| `texto` | TEXT | obligatorio | Texto de la opcion |
-| `es_correcta` | BOOLEAN | obligatorio, por defecto `false` | Participa del indice parcial |
-| `orden` | SMALLINT | obligatorio, por defecto `0` | Posicion (A, B, C, D) |
+| Columna | Tipo | Reglas | Descripción |
+| --- | --- | --- | --- |
+| `id` | BIGINT | PK, identity | |
+| `user_id` | BIGINT | FK -> `users.id`, **CASCADE**, indexado | |
+| `topic_id` | BIGINT | FK -> `topics.id`, **CASCADE**, indexado | |
+| `level` | TEXT | opcional | Nivel del usuario en el tema |
+| `last_updated` | TIMESTAMPTZ | por defecto `now()`, se actualiza solo | |
 
-Indice parcial: `uq_options_una_sola_correcta` (ver seccion 4).
+### `activities`
 
-### `attempts` - intentos
-
-| Columna | Tipo | Reglas | Descripcion |
-|---|---|---|---|
-| `id` | INTEGER | PK | |
-| `user_id` | INTEGER | FK -> `users.id`, **CASCADE**, indexado | |
-| `topic_id` | INTEGER | FK -> `topics.id`, **CASCADE**, indexado | |
-| `correctas` | INTEGER | obligatorio | Numero de aciertos |
-| `total` | INTEGER | obligatorio, **CHECK > 0** | Numero de preguntas respondidas |
-| `porcentaje` | NUMERIC(5,2) | obligatorio | `correctas / total * 100` |
-| `duracion_segundos` | INTEGER | opcional | Tiempo que tardo el estudiante |
-| `fecha` | TIMESTAMPTZ | obligatorio, `now()`, indexado | |
-
-### `answers` - respuestas dentro de un intento
-
-| Columna | Tipo | Reglas | Descripcion |
-|---|---|---|---|
-| `id` | INTEGER | PK | |
-| `attempt_id` | INTEGER | FK -> `attempts.id`, **CASCADE**, indexado | |
-| `question_id` | INTEGER | FK -> `questions.id`, **CASCADE**, indexado | |
-| `option_id` | INTEGER | FK -> `options.id`, **CASCADE**, indexado | Opcion elegida |
-| `es_correcta` | BOOLEAN | obligatorio | Copia del resultado al momento de responder |
-
-`UNIQUE(attempt_id, question_id)`: una sola respuesta por pregunta e intento.
-
-### `progress` - progreso acumulado
-
-Una sola fila por combinacion de estudiante y tema. Se actualiza (no se
-duplica) cada vez que se registra un intento.
-
-| Columna | Tipo | Reglas | Descripcion |
-|---|---|---|---|
-| `id` | INTEGER | PK | |
-| `user_id` | INTEGER | FK -> `users.id`, **CASCADE**, indexado | |
-| `topic_id` | INTEGER | FK -> `topics.id`, **CASCADE**, indexado | |
-| `total_intentos` | INTEGER | por defecto `0`, **CHECK >= 0** | |
-| `total_preguntas` | INTEGER | por defecto `0` | Suma de preguntas de todos los intentos |
-| `total_aciertos` | INTEGER | por defecto `0`, **CHECK <= total_preguntas** | |
-| `porcentaje` | NUMERIC(5,2) | por defecto `0` | `total_aciertos / total_preguntas * 100` |
-| `ultima_actividad` | TIMESTAMPTZ | opcional | Ultima vez que practic |
-
-`UNIQUE(user_id, topic_id)`: garantiza una unica fila de progreso por tema.
-
-### `recommendations` - recomendaciones
-
-| Columna | Tipo | Reglas | Descripcion |
-|---|---|---|---|
-| `id` | INTEGER | PK | |
-| `user_id` | INTEGER | FK -> `users.id`, **CASCADE**, indexado | |
-| `topic_id` | INTEGER | FK -> `topics.id`, **CASCADE**, indexado | |
-| `porcentaje_obtenido` | NUMERIC(5,2) | opcional | El % que motivo la recomendacion |
-| `motivo` | TEXT | obligatorio | **Por que** se recomienda (obligatorio, para poder explicarlo) |
-| `estado` | VARCHAR(10) | por defecto `pendiente`, **CHECK** | `pendiente`, `visto`, `completado` |
-| `creado_en` | TIMESTAMPTZ | obligatorio, `now()` | |
+| Columna | Tipo | Reglas | Descripción |
+| --- | --- | --- | --- |
+| `id` | BIGINT | PK, identity | |
+| `user_id` | BIGINT | FK -> `users.id`, **CASCADE**, indexado | |
+| `type` | TEXT | obligatorio | Tipo de actividad |
+| `content` | TEXT | opcional | Detalle de la actividad |
+| `date` | TIMESTAMPTZ | por defecto `now()` | |
 
 ---
 
 ## Operaciones con Alembic
 
-Siempre desde la carpeta `backend/`, con el entorno virtual activo.
+Siempre desde la carpeta `backend/`. La URL de conexión se toma de
+`DATABASE_URL` en el archivo `.env`.
 
 ```bash
 # Aplicar todo lo pendiente
-alembic upgrade head
+uv run alembic upgrade head
 
-# Ver donde estamos
-alembic current
+# Ver en qué migración está la base
+uv run alembic current
 
-# Ver que cambios faltan entre el codigo y la base
-alembic check
+# Ver si hay diferencias entre los modelos y la base
+uv run alembic check
 
-# Crear una migracion nueva despues de cambiar los modelos
-alembic revision --autogenerate -m "descripcion del cambio"
+# Crear una migración después de cambiar los modelos
+uv run alembic revision --autogenerate -m "descripcion del cambio"
 
-# Deshacer la ultima migracion
-alembic downgrade -1
+# Deshacer la última migración
+uv run alembic downgrade -1
 ```
 
-**Regla de oro:** despues de `autogenerate`, SIEMPRE leer el archivo generado
-antes de aplicarlo. Alembic es una herramienta, no un adivino. Puede generar
-una columna sin el tipo correcto o un borrado que no querias.
+**Regla de oro:** después de `autogenerate`, SIEMPRE leer el archivo generado
+antes de aplicarlo. Alembic puede generar un tipo incorrecto o un borrado que no
+querías.
 
-**Regla de oro 2:** en la base de datos, las secuencias (`*_id_seq`) no se
-revierten con un `ROLLBACK`. Si pruebas inserciones y luego haces rollback, los
-ids consumidos se pierden para siempre y el siguiente registro empieza en un
-numero mayor. No es un bug, es como funciona PostgreSQL.
+**Modelo nuevo:** además de crearlo en `models/`, hay que importarlo en
+`models/__init__.py`; si no, Alembic no lo detecta.

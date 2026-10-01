@@ -1,24 +1,13 @@
-import sys
 from logging.config import fileConfig
-from pathlib import Path
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
 
-# La carpeta "backend" tiene que estar en el path para poder hacer
-# "from app.models import ...". Sin esto, Alembic no encuentra nuestro codigo
-# porque vive un nivel mas arriba que este archivo.
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(BACKEND_DIR))
-
-# Importar los modelos es OBLIGATORIO: cada vez que se importa app.models,
-# las clases se registran en Base.metadata. Si no los importamos, Alembic
-# cree que la base esta vacia y generaria migraciones que borran todo.
-from app.config import settings  # noqa: E402
-from app.database import Base  # noqa: E402
-from app import models  # noqa: E402,F401
+from studyia.core.config import settings
+from studyia.database.base import Base
+import studyia.models  # noqa: F401  (registra todos los modelos en Base.metadata)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -29,12 +18,14 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Con esto, Alembic sabe donde buscar las tablas para compararlas con la base.
-target_metadata = Base.metadata
+# La URL sale del .env (settings), no del alembic.ini
+config.set_main_option("sqlalchemy.url", settings.database_url)
 
-# Usamos la misma URL que el backend, leida del .env. Asi hay una sola fuente
-# de verdad para la configuracion de conexion.
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# add your model's MetaData object here
+# for 'autogenerate' support
+# from myapp import mymodel
+# target_metadata = mymodel.Base.metadata
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -81,7 +72,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
         )
 
         with context.begin_transaction():
